@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#2ecc71">
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
+  <title>SafeRoute</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Heatmap -->
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { height: 100vh; width: 100%; }
+
+    .panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      width: 340px;
+      z-index: 1000;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }
+
+    .panel h3 { 
+      margin: 0 0 15px 0; 
+      font-size: 24px; 
+      color: #2c3e50;
+      text-align: center;
+    }
+
+    .panel input { 
+      width: 100%; 
+      padding: 12px; 
+      margin-bottom: 10px; 
+      font-size: 15px;
+      border: 2px solid #bdc3c7;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    
+    .btn { 
+      width: 100%; 
+      padding: 14px; 
+      margin-top: 8px; 
+      border: none; 
+      border-radius: 8px; 
+      font-weight: bold; 
+      font-size: 16px;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+
+    .btn:hover {
+      transform: scale(1.02);
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-green { background: #2ecc71; color: white; }
+    .btn-yellow { background: #f1c40f; color: #333; }
+    .btn-red { background: #e74c3c; color: white; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .onboarding-btn {
+      padding: 12px 30px;
+      margin: 10px;
+      border: none;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .onboarding-btn-primary {
+      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+      color: white;
+      box-shadow: 0 4px 15px rgba(46, 204, 113, 0.3);
+    }
+
+    .onboarding-btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4);
+    }
+
+    .onboarding-btn-secondary {
+      background: white;
+      color: #2ecc71;
+      border: 2px solid #2ecc71;
+    }
+
+    .onboarding-btn-secondary:hover {
+      background: #2ecc71;
+      color: white;
+    }
+
+    .feature-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+      animation: pulse 2s infinite;
+    }
+
+    .risk { 
+      margin-top: 12px; 
+      padding: 12px; 
+      font-weight: bold; 
+      font-size: 16px;
+      text-align: center; 
+      border-radius: 8px; 
+    }
+    .safe { background: #d4efdf; color: #1e8449; }
+    .medium { background: #fcf3cf; color: #7d6608; }
+    .high { background: #f5b7b1; color: #922b21; }
+  </style>
+</head>
+
+<body>
+
+<div class="panel">
+  <h3>SafeRoute</h3>
+  <input id="from" placeholder="Where are you?" />
+  <input id="to" placeholder="Where do you want to go?" />
+
+  <button class="btn btn-green" onclick="findRoute()">Find Safest Route</button>
+  <button class="btn btn-red" onclick="sendSOS()">🚨 SOS</button>
+  <button class="btn btn-yellow" onclick="reportIncident()">📢 Live Report</button>
+
+  <div style="display: flex; gap: 10px; margin-top: 8px;">
+    <button class="btn" onclick="restartOnboarding()" style="flex: 1; background: #3498db; padding: 10px; font-size: 14px;">
+      ℹ️ Tour
+    </button>
+    <button class="btn" onclick="logout()" style="flex: 1; background: #95a5a6; padding: 10px; font-size: 14px;">
+      🚪 Logout
+    </button>
+  </div>
+
+  <div id="riskBox" class="risk safe">Risk Score: --</div>
+  <div id="voiceStatus" style="margin-top: 10px; padding: 10px; background: #ecf0f1; border-radius: 6px; font-size: 14px; text-align: center; min-height: 20px;">🎤 Voice SOS will start automatically...</div>
+</div>
+
+<div id="map"></div>
+
+<!-- Onboarding Overlay -->
+<div id="onboardingOverlay" style="
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 10000;
+  display: none;
+  animation: fadeIn 0.3s;
+">
+  <div id="onboardingContent" style="
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 40px;
+    border-radius: 20px;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  ">
+    <div id="onboardingStep"></div>
+  </div>
+</div>
+
+<!-- Spotlight Circle for highlighting features -->
+<div id="spotlight" style="
+  position: fixed;
+  border: 4px solid #2ecc71;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  display: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.85), 0 0 20px #2ecc71;
+  transition: all 0.5s ease;
+"></div>
+
+<div id="instructions" style="
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 15px;
+  background: linear-gradient(to top, #111, #222);
+  color: white;
+  font-size: 14px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+  display: none;
+  z-index: 999;
+"></div>
+
+<div id="navigationPanel" style="
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  padding: 25px;
+  border-radius: 15px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  z-index: 2000;
+  display: none;
+  min-width: 350px;
+  max-width: 90%;
+">
+  <h3 style="margin: 0 0 20px 0; color: #2c3e50; text-align: center;">🗺️ Choose Your Route</h3>
+  <div id="routeOptions"></div>
+  <button onclick="closeRouteSelection()" style="width: 100%; padding: 12px; margin-top: 15px; background: #95a5a6; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer;">Cancel</button>
+</div>
+
+<script>
+ 
+let routeLayers = [];
+const map = L.map("map").setView([13.03, 80.23], 15);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+
+let userMarker = null;
+let userLatLng = null;
+
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(
+    pos => {
+      const { latitude, longitude } = pos.coords;
+      userLatLng = { lat: latitude, lon: longitude };
+
+      if (!userMarker) {
+        userMarker = L.marker([latitude, longitude])
+          .addTo(map)
+          .bindPopup("You are here")
+          .openPopup();
+        map.setView([latitude, longitude], 15);
+      } else {
+        userMarker.setLatLng([latitude, longitude]);
+      }
+
+      document.getElementById("from").value = "My Location";
+    },
+    err => console.log("GPS error:", err.message),
+    { enableHighAccuracy: true }
+  );
+}
+
+let roadsLayer, crimeLayer, crimeHeatLayer;
+
+
+
+// 🛣 Roads
+async function loadRoads() {
+  const res = await fetch("http://localhost:5000/api/geojson/roads");
+  const geo = await res.json();
+  if (roadsLayer) map.removeLayer(roadsLayer);
+  roadsLayer = L.geoJSON(geo, {
+    style: f => {
+      const r = f.properties.risk_score || 0;
+      return { color: r <= 3 ? "green" : r <= 6 ? "yellow" : "red", weight: 3 };
+    }
+  }).addTo(map);
+}
+loadRoads();
+
+// 🔴 Crime Points
+async function loadCrimes() {
+  const res = await fetch("http://localhost:5000/api/crimes");
+  const crimes = await res.json();
+  if (crimeLayer) map.removeLayer(crimeLayer);
+
+  crimeLayer = L.geoJSON(
+    crimes.map(c => ({
+      type: "Feature",
+      geometry: JSON.parse(c.geom),
+      properties: { type: c.type }
+    })),
+    {
+      pointToLayer: (_, latlng) =>
+        L.circleMarker(latlng, { radius: 6, fillColor: "red", color: "red", fillOpacity: 0.8 })
+    }
+  ).addTo(map);
+}
+loadCrimes();
+
+// 🔥 Crime Heatmap
+async function loadCrimeHeatmap() {
+  const res = await fetch("http://localhost:5000/api/crimes");
+  const crimes = await res.json();
+
+  const points = crimes.map(c => {
+    const g = JSON.parse(c.geom);
+    return [g.coordinates[1], g.coordinates[0], 0.8];
+  });
+
+  if (crimeHeatLayer) map.removeLayer(crimeHeatLayer);
+  crimeHeatLayer = L.heatLayer(points, { radius: 30, blur: 20 }).addTo(map);
+}
+loadCrimeHeatmap();
+
+// 🧭 Find Route
+async function findRoute() {
+  if (!userLatLng) {
+    alert("GPS not ready");
+    return;
+  }
+
+  const to = document.getElementById("to").value;
+  if (!to) return alert("Enter destination");
+
+  const geoRes = await fetch(
+    `http://localhost:5000/api/geo/geocode?q=${encodeURIComponent(to)}`
+  );
+  const geo = await geoRes.json();
+
+  if (!geo.lat) return alert("Location not found");
+
+  const r = await fetch(
+    `http://localhost:5000/api/routes/route?startLat=${userLatLng.lat}&startLon=${userLatLng.lon}&endLat=${geo.lat}&endLon=${geo.lon}`
+  );
+
+  const data = await r.json();
+
+  if (!data.routes || data.routes.length === 0) {
+    alert("No route found");
+    return;
+  }
+
+  // Clear old routes
+  routeLayers.forEach(l => map.removeLayer(l));
+  routeLayers = [];
+
+  // Store routes for selection
+  window.availableRoutes = data.routes;
+
+  // Show all routes on map
+  data.routes.forEach((route, i) => {
+    const coords = Array.isArray(route.geometry)
+      ? route.geometry
+      : route.geometry.coordinates.map(c => [c[1], c[0]]);
+    const color = i === 0 ? "green" : i === 1 ? "orange" : "red";
+
+    const line = L.polyline(coords, {
+      color,
+      weight: i === 0 ? 7 : 4,
+      opacity: 0.7
+    }).addTo(map);
+
+    line.bindPopup(`
+      <b>Route ${i + 1}</b><br>
+      Distance: ${(route.distance / 1000).toFixed(2)} km<br>
+      Time: ${(route.duration / 60).toFixed(1)} min<br>
+      Crime Score: ${route.crime_score.toFixed(2)}
+    `);
+
+    routeLayers.push(line);
+  });
+
+  if (routeLayers.length > 0) {
+    map.fitBounds(routeLayers[0].getBounds());
+  }
+
+  // Show route selection panel
+  showRouteSelection(data.routes);
+}
+
+function showRouteSelection(routes) {
+  const panel = document.getElementById("navigationPanel");
+  const optionsDiv = document.getElementById("routeOptions");
+  
+  optionsDiv.innerHTML = "";
+  
+  routes.forEach((route, i) => {
+    const isSafest = i === 0;
+    const badge = isSafest ? "🛡️ SAFEST" : i === 1 ? "⚠️ MODERATE" : "❌ HIGH RISK";
+    const color = isSafest ? "#2ecc71" : i === 1 ? "#f39c12" : "#e74c3c";
+    
+    const routeCard = document.createElement("div");
+    routeCard.style.cssText = `
+      padding: 15px;
+      margin-bottom: 10px;
+      border: 3px solid ${color};
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: ${isSafest ? '#e8f8f5' : '#fff'};
+    `;
+    
+    routeCard.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-weight: bold; font-size: 16px;">Route ${i + 1}</span>
+        <span style="background: ${color}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">${badge}</span>
+      </div>
+      <div style="color: #555; font-size: 14px;">
+        📍 Distance: ${(route.distance / 1000).toFixed(2)} km<br>
+        ⏱️ Time: ${(route.duration / 60).toFixed(1)} min<br>
+        🚨 Crime Score: ${route.crime_score.toFixed(2)}
+      </div>
+    `;
+    
+    routeCard.onmouseover = () => routeCard.style.transform = "scale(1.02)";
+    routeCard.onmouseout = () => routeCard.style.transform = "scale(1)";
+    routeCard.onclick = () => startNavigation(i);
+    
+    optionsDiv.appendChild(routeCard);
+  });
+  
+  panel.style.display = "block";
+}
+
+function closeRouteSelection() {
+  document.getElementById("navigationPanel").style.display = "none";
+}
+
+let navigationActive = false;
+let currentRouteIndex = 0;
+let currentStepIndex = 0;
+let voiceGuidance;
+
+function startNavigation(routeIndex) {
+  closeRouteSelection();
+  
+  const route = window.availableRoutes[routeIndex];
+  currentRouteIndex = routeIndex;
+  currentStepIndex = 0;
+  navigationActive = true;
+  
+  // Highlight selected route
+  routeLayers.forEach((layer, i) => {
+    if (i === routeIndex) {
+      layer.setStyle({ color: '#2ecc71', weight: 8, opacity: 1 });
+    } else {
+      layer.setStyle({ opacity: 0.2, weight: 2 });
+    }
+  });
+  
+  // Show navigation instructions
+  const instructionsDiv = document.getElementById("instructions");
+  instructionsDiv.style.display = "block";
+  
+  if (route.legs && route.legs.length > 0) {
+    showNavigationInstructions(route.legs[0].steps);
+    
+    // Start voice guidance
+    if ('speechSynthesis' in window) {
+      speak("Navigation started. Let's go!");
+      setTimeout(() => {
+        announceNextStep(route.legs[0].steps, 0);
+      }, 2000);
+    }
+  }
+  
+  // Update risk score
+  document.getElementById("riskBox").innerText = `Crime Score: ${route.crime_score.toFixed(2)}`;
+  document.getElementById("riskBox").className = 
+    route.crime_score < 2 ? 'risk safe' : route.crime_score < 4 ? 'risk medium' : 'risk high';
+}
+
+function showNavigationInstructions(steps) {
+  const div = document.getElementById("instructions");
+  div.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #444;">
+      <h3 style="margin: 0; color: #2ecc71;">🧭 Navigation Active</h3>
+      <button onclick="stopNavigation()" style="background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: bold;">Stop</button>
+    </div>
+  `;
+
+  steps.forEach((step, i) => {
+    const isActive = i === currentStepIndex;
+    
+    // Get instruction text with fallback
+    const instruction = step.maneuver?.instruction || 
+                       getInstructionFromManeuver(step.maneuver) ||
+                       "Continue on this road";
+    
+    const arrow = getDirectionArrow(step.maneuver?.modifier || step.maneuver?.type);
+    const distance = step.distance || 0;
+    
+    div.innerHTML += `
+      <div style="
+        padding: 12px;
+        margin-bottom: 8px;
+        background: ${isActive ? '#2ecc71' : '#333'};
+        border-radius: 8px;
+        border-left: 4px solid ${isActive ? '#27ae60' : '#555'};
+        ${isActive ? 'transform: scale(1.05); box-shadow: 0 4px 10px rgba(46, 204, 113, 0.3);' : ''}
+      ">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">${arrow}</span>
+          <div style="flex: 1;">
+            <div style="font-weight: bold; margin-bottom: 4px; ${isActive ? 'font-size: 16px;' : ''}">${i + 1}. ${instruction}</div>
+            <div style="color: ${isActive ? '#fff' : '#aaa'}; font-size: 13px;">${Math.round(distance)} meters</div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+function getInstructionFromManeuver(maneuver) {
+  if (!maneuver) return "Continue straight";
+  
+  const type = maneuver.type || "";
+  const modifier = maneuver.modifier || "";
+  
+  // Generate instruction based on type and modifier
+  if (type === "depart") return "Head " + (modifier || "straight");
+  if (type === "arrive") return "You have arrived at your destination";
+  if (type === "turn") {
+    if (modifier === "left") return "Turn left";
+    if (modifier === "right") return "Turn right";
+    if (modifier === "slight left") return "Keep left";
+    if (modifier === "slight right") return "Keep right";
+    if (modifier === "sharp left") return "Sharp left turn";
+    if (modifier === "sharp right") return "Sharp right turn";
+  }
+  if (type === "continue") return "Continue " + (modifier || "straight");
+  if (type === "merge") return "Merge " + (modifier || "");
+  if (type === "roundabout") return "Take the roundabout";
+  
+  return "Continue on this road";
+}
+
+function getDirectionArrow(modifier) {
+  if (!modifier) return "➡️";
+  if (modifier.includes("left")) return "⬅️";
+  if (modifier.includes("right")) return "➡️";
+  if (modifier.includes("straight")) return "⬆️";
+  if (modifier.includes("uturn")) return "↩️";
+  return "➡️";
+}
+
+function speak(text) {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel(); // Cancel any ongoing speech
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
+function announceNextStep(steps, stepIndex) {
+  if (!navigationActive || stepIndex >= steps.length) return;
+  
+  const step = steps[stepIndex];
+  const distance = Math.round(step.distance || 0);
+  
+  // Get instruction with fallback
+  const instruction = step.maneuver?.instruction || 
+                     getInstructionFromManeuver(step.maneuver) ||
+                     "Continue straight";
+  
+  speak(`In ${distance} meters, ${instruction}`);
+  
+  // Simulate progress (in real app, you'd use GPS to detect when user reaches each step)
+  const timeToNextStep = (distance / 1.4) * 1000; // Assume 1.4 m/s walking speed
+  
+  setTimeout(() => {
+    currentStepIndex++;
+    showNavigationInstructions(steps);
+    
+    if (currentStepIndex < steps.length) {
+      announceNextStep(steps, currentStepIndex);
+    } else {
+      speak("You have arrived at your destination!");
+      stopNavigation();
+    }
+  }, Math.min(timeToNextStep, 30000)); // Max 30 seconds per step for demo
+}
+
+function stopNavigation() {
+  navigationActive = false;
+  currentStepIndex = 0;
+  window.speechSynthesis.cancel();
+  
+  document.getElementById("instructions").style.display = "none";
+  
+  // Reset route opacity
+  routeLayers.forEach(layer => {
+    layer.setStyle({ opacity: 0.7 });
+  });
+  
+  speak("Navigation stopped");
+}
+
+// 🚨 SOS
+let sosActive = false;
+let audioContext, oscillator, gainNode;
+
+function startSOSSound() {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+    
+    const osc1 = audioContext.createOscillator();
+    const osc2 = audioContext.createOscillator();
+    const osc3 = audioContext.createOscillator();
+    gainNode = audioContext.createGain();
+    
+    osc1.type = 'square';
+    osc2.type = 'sawtooth';
+    osc3.type = 'square';
+    
+    osc1.frequency.setValueAtTime(1000, audioContext.currentTime);
+    osc2.frequency.setValueAtTime(1200, audioContext.currentTime);
+    osc3.frequency.setValueAtTime(800, audioContext.currentTime);
+    
+    gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
+    
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
+    osc3.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    osc1.start();
+    osc2.start();
+    osc3.start();
+    
+    oscillator = osc1;
+    
+    let pattern = 0;
+    setInterval(() => {
+      if (sosActive && osc1) {
+        pattern = (pattern + 1) % 4;
+        const time = audioContext.currentTime;
+        
+        if (pattern === 0) {
+          osc1.frequency.setValueAtTime(1400, time);
+          osc2.frequency.setValueAtTime(1600, time);
+          osc3.frequency.setValueAtTime(1200, time);
+        } else if (pattern === 1) {
+          osc1.frequency.setValueAtTime(1000, time);
+          osc2.frequency.setValueAtTime(1200, time);
+          osc3.frequency.setValueAtTime(800, time);
+        } else if (pattern === 2) {
+          osc1.frequency.setValueAtTime(1600, time);
+          osc2.frequency.setValueAtTime(1800, time);
+          osc3.frequency.setValueAtTime(1400, time);
+        } else {
+          osc1.frequency.setValueAtTime(900, time);
+          osc2.frequency.setValueAtTime(1100, time);
+          osc3.frequency.setValueAtTime(700, time);
+        }
+      }
+    }, 150);
+    
+    console.log("🔊 LOUD EMERGENCY ALARM ACTIVATED!");
+  } catch(e) {
+    console.log("Audio error:", e);
+  }
+}
+
+function stopSOSSound() {
+  try {
+    if (oscillator) {
+      oscillator.stop();
+      oscillator.disconnect();
+      oscillator = null;
+    }
+    if (gainNode) {
+      gainNode.disconnect();
+      gainNode = null;
+    }
+    if (audioContext) {
+      audioContext.close();
+      audioContext = null;
+    }
+    console.log("🔇 SOS siren stopped");
+  } catch(e) {
+    console.log("Stop audio error:", e);
+  }
+}
+
+async function triggerSOS(source) {
+  if (sosActive) {
+    // Stop SOS
+    sosActive = false;
+    stopSOSSound();
+    document.querySelector('.btn-red').textContent = '🚨 SOS';
+    document.querySelector('.btn-red').style.background = '#e74c3c';
+    console.log("SOS deactivated");
+    return;
+  }
+
+  // Start SOS
+  sosActive = true;
+  startSOSSound();
+  document.querySelector('.btn-red').textContent = '🔇 STOP SOS';
+  document.querySelector('.btn-red').style.background = '#c0392b';
+  console.log(`🚨 SOS ACTIVATED via ${source}`);
+  
+  if (!userMarker) {
+    console.log("⚠️ GPS not ready, sending SOS without location");
+    // Still try to send SOS call even without GPS
+  }
+  
+  try {
+    const payload = {
+      phone: "+919997114166",  // 🔴 YOUR NUMBER HERE
+      source: source
+    };
+    
+    // Add location if available
+    if (userMarker) {
+      const { lat, lng } = userMarker.getLatLng();
+      payload.lat = lat;
+      payload.lon = lng;
+    }
+    
+    console.log("📤 Sending SOS:", payload);
+    
+    const response = await fetch("http://localhost:5000/api/sos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log("✅ SOS sent successfully:", data);
+      alert("🚨 Emergency call placed!");
+    } else {
+      const errorText = await response.text();
+      console.log(`⚠️ Server error ${response.status}:`, errorText);
+      alert("⚠️ SOS alert active but server error occurred");
+    }
+  } catch(error) {
+    console.log("⚠️ Network error:", error.message);
+    alert("⚠️ SOS alert active but network error occurred");
+  }
+}
+
+function sendSOS() { 
+  triggerSOS("Manual"); 
+}
+
+// 📢 Incident Report
+async function reportIncident() {
+  const type = prompt("Incident type (theft / assault / harassment)");
+  if (!type) return;
+  
+  if (!userMarker) {
+    alert("GPS location not available");
+    return;
+  }
+  
+  const { lat, lng } = userMarker.getLatLng();
+  await fetch("http://localhost:5000/api/crimes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, lat, lon: lng })
+  });
+  alert("Incident reported");
+  loadCrimes();
+  loadCrimeHeatmap();
+}
+
+// 🎤 Voice-Activated SOS
+const keywords = ["help", "help me", "save me", "emergency"];
+let recognition;
+const voiceStatus = document.getElementById('voiceStatus');
+
+function updateStatus(msg, color = '#3498db') {
+  voiceStatus.textContent = msg;
+  voiceStatus.style.background = color;
+}
+
+function startVoiceRecognition() {
+  if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
+    updateStatus('❌ Voice SOS not supported - Use Chrome/Edge', '#e74c3c');
+    return;
+  }
+
+  const isBrave = navigator.brave && typeof navigator.brave.isBrave === 'function';
+  if (isBrave) {
+    updateStatus('⚠️ Brave detected - Enable Speech API', '#e67e22');
+    return;
+  }
+
+  const isSecure = window.location.protocol === 'https:' || 
+                   window.location.hostname === 'localhost' || 
+                   window.location.hostname === '127.0.0.1';
+  if (!isSecure) {
+    updateStatus('❌ Voice SOS requires HTTPS or localhost', '#e74c3c');
+    return;
+  }
+
+  if (!navigator.onLine) {
+    updateStatus('❌ No internet - Voice SOS disabled', '#e74c3c');
+    setTimeout(() => startVoiceRecognition(), 5000);
+    return;
+  }
+
+  updateStatus('🔄 Starting Voice SOS...', '#f39c12');
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  
+  if (!recognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = e => {
+      const result = e.results[e.results.length - 1];
+      const text = result[0].transcript.toLowerCase();
+      const confidence = result[0].confidence;
+      
+      console.log(`👂 Heard: "${text}" (${Math.round(confidence * 100)}% confident)`);
+      updateStatus(`🎤 Listening... "${text}"`, '#3498db');
+      
+      if (keywords.some(k => text.includes(k))) {
+        if (!sosActive) {
+          console.log("🚨 KEYWORD DETECTED! Triggering SOS!");
+          updateStatus('🚨 HELP DETECTED! SOS ACTIVATED!', '#e74c3c');
+          triggerSOS("Voice");
+        }
+      }
+    };
+
+    recognition.onerror = e => {
+      console.log("⚠️ Voice error:", e.error);
+      
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        updateStatus('❌ Microphone blocked - Allow in settings', '#e74c3c');
+      } else if (e.error === 'network') {
+        updateStatus('⚠️ Network error - retrying...', '#e67e22');
+      } else if (e.error === 'no-speech') {
+        updateStatus('🎤 Listening... (waiting for speech)', '#3498db');
+      } else if (e.error === 'aborted') {
+        updateStatus('⚠️ Restarting...', '#e67e22');
+      } else {
+        updateStatus(`⚠️ Error: ${e.error} - retrying...`, '#e67e22');
+      }
+    };
+
+    recognition.onend = () => {
+      console.log("Recognition ended - restarting...");
+      updateStatus('🔄 Restarting Voice SOS...', '#f39c12');
+      
+      setTimeout(() => {
+        try {
+          recognition.start();
+        } catch(err) {
+          console.log("Restart error:", err.message);
+          setTimeout(() => startVoiceRecognition(), 2000);
+        }
+      }, 500);
+    };
+
+    recognition.onstart = () => {
+      console.log("✅ VOICE SOS ACTIVE - Always listening");
+      updateStatus('✅ LISTENING - Say "help" for SOS', '#2ecc71');
+    };
+  }
+
+  try {
+    recognition.start();
+  } catch (err) {
+    console.log("Start error:", err.message);
+    if (err.message.includes('already started')) {
+      updateStatus('✅ LISTENING - Say "help" for SOS', '#2ecc71');
+    } else {
+      updateStatus('❌ Failed to start - check permissions', '#e74c3c');
+    }
+  }
+}
+
+// Auto-start voice recognition
+setTimeout(() => {
+  console.log("🎤 Auto-starting Voice SOS...");
+  startVoiceRecognition();
+}, 1500);
+
+// Auto-center map on user
+setInterval(() => {
+  if (userMarker) {
+    map.panTo(userMarker.getLatLng(), { animate: true });
+  }
+}, 2000);
+
+// ============================================
+// 🎓 ONBOARDING TOUR
+// ============================================
+
+const onboardingSteps = [
+  {
+    title: "Welcome to SafeRoute! 🛡️",
+    content: "Your personal safety companion for secure navigation. Let's take a quick tour to show you how to stay safe.",
+    icon: "🎉",
+    showSpotlight: false
+  },
+  {
+    title: "What Makes SafeRoute Unique? ✨",
+    content: `
+      <div style="text-align: left; margin: 20px 0;">
+        <p style="margin: 15px 0;"><strong>🗺️ Smart Route Planning:</strong> AI-powered routes that avoid high-crime areas in real-time</p>
+        <p style="margin: 15px 0;"><strong>🚨 Instant SOS Alerts:</strong> One-tap emergency calls to your trusted contacts</p>
+        <p style="margin: 15px 0;"><strong>🎤 Voice Activation:</strong> Just say "help" - no need to touch your phone</p>
+        <p style="margin: 15px 0;"><strong>📊 Live Crime Data:</strong> Real-time incident reports from the community</p>
+        <p style="margin: 15px 0;"><strong>🧭 Turn-by-Turn Guidance:</strong> Voice navigation that keeps you on the safest path</p>
+      </div>
+    `,
+    icon: "⭐",
+    showSpotlight: false
+  },
+  {
+    title: "Search & Navigate 🗺️",
+    content: "Enter your destination here. SafeRoute will show you multiple routes color-coded by safety level - green for safest, yellow for moderate, red for high-risk.",
+    icon: "🔍",
+    element: "#to",
+    showSpotlight: true
+  },
+  {
+    title: "Emergency SOS 🚨",
+    content: "In danger? Tap this button instantly! It will:<br>• Call your emergency contact<br>• Sound a loud alarm<br>• Share your live location<br>• Alert nearby users",
+    icon: "🆘",
+    element: ".btn-red",
+    showSpotlight: true
+  },
+  {
+    title: "Voice-Activated SOS 🎤",
+    content: "Hands busy or can't reach your phone? Just say 'help', 'help me', 'save me', or 'emergency' and SafeRoute will automatically trigger an SOS alert!",
+    icon: "🗣️",
+    element: "#voiceStatus",
+    showSpotlight: true
+  },
+  {
+    title: "Report Incidents 📢",
+    content: "See something suspicious? Report it here to help keep the community safe. Your reports update the crime map in real-time for all users.",
+    icon: "📣",
+    element: ".btn-yellow",
+    showSpotlight: true
+  },
+  {
+    title: "Crime Heat Map 🔥",
+    content: "The red areas on the map show crime hotspots. SafeRoute automatically routes you around these dangerous zones to keep you safe.",
+    icon: "🗺️",
+    showSpotlight: false
+  },
+  {
+    title: "You're All Set! 🎯",
+    content: "Remember: Your safety is our priority. SafeRoute is always watching out for you. Stay safe out there!",
+    icon: "✅",
+    showSpotlight: false
+  }
+];
+
+let currentOnboardingStep = 0;
+
+function startOnboarding() {
+  // Check if user has seen onboarding before
+  const hasSeenOnboarding = localStorage.getItem('saferoute_onboarding_completed');
+  
+  if (hasSeenOnboarding) {
+    return; // Skip onboarding if already seen
+  }
+  
+  currentOnboardingStep = 0;
+  document.getElementById('onboardingOverlay').style.display = 'block';
+  showOnboardingStep(0);
+}
+
+function showOnboardingStep(stepIndex) {
+  if (stepIndex >= onboardingSteps.length) {
+    finishOnboarding();
+    return;
+  }
+  
+  const step = onboardingSteps[stepIndex];
+  const content = document.getElementById('onboardingStep');
+  
+  const isLastStep = stepIndex === onboardingSteps.length - 1;
+  const isFirstStep = stepIndex === 0;
+  
+  content.innerHTML = `
+    <div class="feature-icon">${step.icon}</div>
+    <h2 style="color: #2c3e50; margin-bottom: 15px; font-size: 28px;">${step.title}</h2>
+    <div style="color: #555; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+      ${step.content}
+    </div>
+    <div style="margin-top: 20px;">
+      ${!isFirstStep ? '<button class="onboarding-btn onboarding-btn-secondary" onclick="previousOnboardingStep()">← Back</button>' : ''}
+      <button class="onboarding-btn onboarding-btn-primary" onclick="nextOnboardingStep()">
+        ${isLastStep ? "Let's Go! 🚀" : "Next →"}
+      </button>
+    </div>
+    <div style="margin-top: 20px; color: #95a5a6; font-size: 14px;">
+      Step ${stepIndex + 1} of ${onboardingSteps.length}
+    </div>
+    ${isFirstStep ? '<div style="margin-top: 15px;"><a href="#" onclick="skipOnboarding(); return false;" style="color: #95a5a6; font-size: 14px; text-decoration: none;">Skip Tour</a></div>' : ''}
+  `;
+  
+  // Show spotlight if needed
+  if (step.showSpotlight && step.element) {
+    showSpotlight(step.element);
+  } else {
+    hideSpotlight();
+  }
+}
+
+function showSpotlight(selector) {
+  const element = document.querySelector(selector);
+  if (!element) return;
+  
+  const spotlight = document.getElementById('spotlight');
+  const rect = element.getBoundingClientRect();
+  
+  const size = Math.max(rect.width, rect.height) + 40;
+  
+  spotlight.style.display = 'block';
+  spotlight.style.width = size + 'px';
+  spotlight.style.height = size + 'px';
+  spotlight.style.left = (rect.left + rect.width / 2 - size / 2) + 'px';
+  spotlight.style.top = (rect.top + rect.height / 2 - size / 2) + 'px';
+}
+
+function hideSpotlight() {
+  document.getElementById('spotlight').style.display = 'none';
+}
+
+function nextOnboardingStep() {
+  currentOnboardingStep++;
+  showOnboardingStep(currentOnboardingStep);
+}
+
+function previousOnboardingStep() {
+  currentOnboardingStep--;
+  showOnboardingStep(currentOnboardingStep);
+}
+
+function skipOnboarding() {
+  if (confirm('Are you sure you want to skip the tour? You can always restart it from settings.')) {
+    finishOnboarding();
+  }
+}
+
+function finishOnboarding() {
+  document.getElementById('onboardingOverlay').style.display = 'none';
+  hideSpotlight();
+  localStorage.setItem('saferoute_onboarding_completed', 'true');
+  speak("Welcome to SafeRoute devis and women ! Your safety companion is now active.");
+}
+
+// Restart onboarding function (can be called from settings)
+function restartOnboarding() {
+  localStorage.removeItem('saferoute_onboarding_completed');
+  startOnboarding();
+}
+
+// Start onboarding after a short delay
+setTimeout(() => {
+  startOnboarding();
+}, 2000);
+
+// ============================================
+// 🔐 LOGIN PROTECTION & LOGOUT
+// ============================================
+
+// Check if user is logged in (runs on page load)
+function checkAuth() {
+  const user = localStorage.getItem('saferoute_user') || sessionStorage.getItem('saferoute_user');
+  
+  if (!user) {
+    window.location.href = 'login.html';
+    return false;
+  }
+  
+  try {
+    const userData = JSON.parse(user);
+    if (!userData.loggedIn) {
+      window.location.href = 'login.html';
+      return false;
+    }
+    console.log('✅ User authenticated:', userData.email);
+    return true;
+  } catch (e) {
+    window.location.href = 'login.html';
+    return false;
+  }
+}
+
+// Logout function
+function logout() {
+  if (confirm('Are you sure you want to logout?')) {
+    localStorage.removeItem('saferoute_user');
+    sessionStorage.removeItem('saferoute_user');
+    localStorage.removeItem('saferoute_onboarding_completed');
+    speak("Goodbye! Stay safe. I hope you reached to the location ");
+    setTimeout(() => {
+      window.location.href = 'login.html';
+    }, 1000);
+  }
+}
+
+// Run auth check immediately
+if (!checkAuth()) {
+  // Will redirect to login if not authenticated
+}
+
+</script>
+
+</body>
+</html>
